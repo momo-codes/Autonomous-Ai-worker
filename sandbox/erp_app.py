@@ -91,11 +91,46 @@ def make_page(title,body,error=None,notice=None):
     </html>
     """
 
+
+## route 1 -home page
 @app.get('/')
 def home():
     body = "<p>Welcone to Acme ERP</p><p><a href='/payables'>Go to Accounts Payable</a></p>"
     return make_page("Home", body)
 
+
+## route 2-- listing all bills 
+
+@app.get('/payables')
+def payables():
+    rows = ""
+    for b in bills:
+        rows+= f"""
+        <tr>
+            <td><a href="/payables/{b['id']}">{b['id']}</a></td>
+            <td>{b['vendor']}</td>
+            <td>{b['invoice_number']}</td>
+            <td>{b['amount']} {b['currency']}</td>
+            <td>{b['due_date']}</td>
+            <td>{b['status']}</td>
+        </tr>    
+        """
+        body=f"""
+        <table>
+            <tr>
+                <th>Bill ID</th>
+                <th>Vendor</th>
+                <th>Invoice #</th>
+                <th>Amount</th>
+                <th>Due Date</th>
+                <th>Status</th>
+            </tr>
+            {rows}
+        </table>
+        <br>
+        <a href="/payables/new">Create New Bill</a>
+        """
+        return make_page("Accounts Payable", body)
 
 if __name__ == '__main__':
     app.run(port=5055, debug=True)
