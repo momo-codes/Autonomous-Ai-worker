@@ -115,8 +115,8 @@ def payables():
             <td>{b['status']}</td>
         </tr>    
         """
-        body=f"""
-        <table>
+    body=f"""
+    <table>
             <tr>
                 <th>Bill ID</th>
                 <th>Vendor</th>
@@ -130,7 +130,7 @@ def payables():
         <br>
         <a href="/payables/new">Create New Bill</a>
         """
-        return make_page("Accounts Payable", body)
+    return make_page("Accounts Payable", body)
 
 if __name__ == '__main__':
     app.run(port=5055, debug=True)
