@@ -1,10 +1,32 @@
 from flask import Flask, request, redirect
+import secrets
+import re
+
+from home import home_bp
+from bill_list import bills_bp
+from new_bill import new_bill_bp
+from post_bill import post_bill_bp
+from bill_details import bill_details_bp
 
 app = Flask(__name__)
+
+
+CSRF_TOKEN = secrets.token_hex(8)
+
+VENDORS = {
+    "V-100": "Northwind Traders Pvt Ltd",
+    "V-200": "Globex Logistics Ltd",
+    "V-300": "Initech Services",
+}
+
+CURRENCIES = ["USD", "EUR", "INR"]
+
+ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 bills = [
     {
         "id": "BILL-0001",
+        "vendor_id": "V-100",
         "vendor": "Northwind Traders Pvt Ltd",
         "invoice_number": "INV-2031",
         "invoice_date": "2026-07-02",
@@ -15,6 +37,7 @@ bills = [
     },
     {
         "id": "BILL-0002",
+        "vendor_id": "V-100",
         "vendor": "Northwind Traders Pvt Ltd",
         "invoice_number": "INV-2044",
         "invoice_date": "2026-08-14",
@@ -24,6 +47,11 @@ bills = [
         "status": "Entered"
     }
 ]
+
+
+stats = {
+    "post_attempts": 0
+}
 
 
 ##Helper function 
@@ -93,44 +121,21 @@ def make_page(title,body,error=None,notice=None):
 
 
 ## route 1 -home page
-@app.get('/')
-def home():
-    body = "<p>Welcone to Acme ERP</p><p><a href='/payables'>Go to Accounts Payable</a></p>"
-    return make_page("Home", body)
+app.register_blueprint(home_bp)
 
 
 ## route 2-- listing all bills 
 
-@app.get('/payables')
-def payables():
-    rows = ""
-    for b in bills:
-        rows+= f"""
-        <tr>
-            <td><a href="/payables/{b['id']}">{b['id']}</a></td>
-            <td>{b['vendor']}</td>
-            <td>{b['invoice_number']}</td>
-            <td>{b['amount']} {b['currency']}</td>
-            <td>{b['due_date']}</td>
-            <td>{b['status']}</td>
-        </tr>    
-        """
-    body=f"""
-    <table>
-            <tr>
-                <th>Bill ID</th>
-                <th>Vendor</th>
-                <th>Invoice #</th>
-                <th>Amount</th>
-                <th>Due Date</th>
-                <th>Status</th>
-            </tr>
-            {rows}
-        </table>
-        <br>
-        <a href="/payables/new">Create New Bill</a>
-        """
-    return make_page("Accounts Payable", body)
+app.register_blueprint(bills_bp)
+
+## route 3-- creating new bill
+app.register_blueprint(new_bill_bp)
+
+## route 4-- posting new bill
+app.register_blueprint(post_bill_bp)
+
+## route 5-- bill details
+app.register_blueprint(bill_details_bp)
 
 if __name__ == '__main__':
     app.run(port=5055, debug=True)
