@@ -31,19 +31,19 @@ class Tool:
 
     def spec(self):
         """
-        Returns the tool in the format GenAi API expects.
+        Returns the tool in the format Gemini API expects.
         
-        This is what gets sent to Claude so it knows
+        This is what gets sent to gemini so it knows
         what tools are available and how to call them.
         
         Looks like this:
         {
             "name": "read_file",
             "description": "Read a file...",
-            "input_schema": {
-                "type": "object",
+            "parameters": {
+                "type": "OBJECT",
                 "properties": {
-                    "path": {"type": "string"}
+                    "path": {"type": "STRING"}
                 },
                 "required": ["path"]
             }
@@ -52,8 +52,40 @@ class Tool:
         return {
             "name":self.name,
             "description":self.description,
-            "input_schema":self.schema
-        }    
+            "parameters":self._gemini_schema()
+        }   
+    def _gemini_schema(self):
+        """
+        Converts our schema to Gemini format.
+        Only change: type values become uppercase.
+        
+        "string"  → "STRING"
+        "integer" → "INTEGER"
+        "object"  → "OBJECT"
+        "array"   → "ARRAY"
+        "boolean" → "BOOLEAN"
+        """
+        schema = self.schema.copy()
+
+        # Uppercase the top level type
+        if "type" in schema:
+            schema["type"] = schema["type"].upper()
+
+        # Uppercase types inside properties
+        if "properties" in schema:
+            new_props = {}
+            for prop_name, prop_value in schema["properties"].items():
+                new_prop = prop_value.copy()
+                if "type" in new_prop:
+                    new_prop["type"] = new_prop["type"].upper()
+                # Handle array items
+                if "items" in new_prop and "type" in new_prop["items"]:
+                    new_prop["items"] = new_prop["items"].copy()
+                    new_prop["items"]["type"] = new_prop["items"]["type"].upper()
+                new_props[prop_name] = new_prop
+            schema["properties"] = new_props
+
+        return schema 
 
 
 def make_schema(properties, required):
