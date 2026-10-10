@@ -378,3 +378,81 @@ def browser_submit(ctx,form_index,fields):
      """
 
      return ctx.browser.submit(form_index,fields)
+
+
+
+## memory, human and finish tools
+
+##Tool6 -- remeber
+
+def remeber(ctx,key,value):
+     """
+      Saves a fact to working memory.
+    
+    Example call from AI (right after reading invoice):
+    remember(ctx, key="invoice_number", value="INV-2057")
+    remember(ctx, key="amount", value="4820.50")
+    remember(ctx, key="due_date", value="2026-10-21")
+    
+    Returns:
+    {
+        "ok": True,
+        "stored": "invoice_number"
+    }
+    
+    These facts now appear in EVERY future prompt:
+    
+    WORKING MEMORY:
+    - invoice_number: INV-2057
+    - amount: 4820.50
+    - due_date: 2026-10-21
+    
+    So even 20 steps later the AI still knows these values.
+     """
+
+     ctx.memory.remeber(key,value)
+     return {"ok":True,"sorted":key}
+
+
+##Tool7 ask human
+
+def ask_human(ctx,question):
+     """
+      Asks the human a question and waits for their answer.
+    
+    Used when:
+    - Task is ambiguous
+    - Policy requires approval (e.g. bill over 10,000)
+    - AI is genuinely stuck
+    
+    Example call from AI (Globex invoice = 18,250 > 10,000):
+    ask_human(
+        ctx,
+        question="The Globex invoice GLX-88121 is for INR 18,250.
+                  Company policy requires approval for bills over 10,000.
+                  Do you approve entering this bill?"
+    )
+    
+    Terminal shows:
+    [AGENT NEEDS YOUR INPUT]
+    Question: The Globex invoice GLX-88121 is for INR 18,250...
+    Your answer: yes go ahead
+    
+    Returns:
+    {
+        "ok": True,
+        "answer": "yes go ahead"
+    }
+    
+    AI reads the answer and decides what to do next.
+     """
+
+     answer = ctx.human.ask(question)
+     return {"ok":True,"answer":answer}
+
+
+## Tool 8 finish
+
+# NOTE: finish is special - it doesn't have a function here
+# The agent loop handles it directly
+# We just need its schema for Claude to know about it
