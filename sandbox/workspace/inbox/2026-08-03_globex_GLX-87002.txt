@@ -1,0 +1,9 @@
+From: invoices@globex-logistics.example
+Date: Mon, 3 Aug 2026
+Subject: Invoice GLX-87002
+
+Invoice Number : GLX-87002
+Invoice Date   : 02 Aug 2026
+Due Date       : 01 Sep 2026
+TOTAL (INR)    : 9,900.00
+Globex Logistics Limited

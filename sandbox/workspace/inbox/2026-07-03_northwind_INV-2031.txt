@@ -1,0 +1,14 @@
+From: billing@northwind-traders.example
+To: ap@acme.example
+Date: Fri, 3 Jul 2026
+Subject: Invoice INV-2031 from Northwind Traders Private Limited
+
+Invoice Number : INV-2031
+Invoice Date   : 02 Jul 2026
+Due Date       : 01 Aug 2026
+Bill To        : Acme Corp
+
+Description          Qty   Amount
+Packaging material    10   1,016.95
+GST 18%                      183.05
+TOTAL DUE (INR)            1,200.00

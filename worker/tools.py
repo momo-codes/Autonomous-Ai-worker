@@ -277,7 +277,7 @@ def search_files(ctx,query,path="."):
           for line_number,line in enumerate(text.splitlines(),start=1):
                if query_lower in line.lower():
                     matches.append({
-                         "file":str(file_path.relative_to(ctx.workspace)),
+                         "file":str(file_path.relative_to(ctx.workspace.resolve())),
                          "line":line_number,
                          "text":line.strip()[:200] # first 200 chars of matching line
 
@@ -456,3 +456,234 @@ def ask_human(ctx,question):
 # NOTE: finish is special - it doesn't have a function here
 # The agent loop handles it directly
 # We just need its schema for Claude to know about it
+
+
+## Registering all tools
+
+def build_tools():
+     """
+      Creates all tools and returns them as a dictionary.
+    
+    Returns:
+    {
+        "list_files": Tool(...),
+        "read_file": Tool(...),
+        "search_files": Tool(...),
+        "browser_open": Tool(...),
+        "browser_submit": Tool(...),
+        "remember": Tool(...),
+        "ask_human": Tool(...),
+        "finish": Tool(...)
+    }
+    
+    The agent uses this to:
+    1. Send tool specs to GenAi (so it knows what's available)
+    2. Look up and run the tool when GenAi calls it
+     """
+
+     tools=[
+          Tool(
+               name="list_files",
+               description=(
+                   "List files and folders in the company workspace. "
+                    "Use this first to see what invoice files are available."
+               ),
+               schema = make_schema(
+                    properties={
+                        "path":{
+                             "type":"string",
+                             "description":"Folder to list. Default is '.' (root workspace)"
+                        }
+               },
+               required=[] ## path is optional
+               ),
+               fn = list_files,
+               mutating=False
+          ),
+
+          Tool(
+               name="read_file",
+               description=(
+                    "Read the contents of a file (txt, html, pdf). "
+                    "Use this to read invoice files and extract details like "
+                    "invoice number, amount, date."
+               ),
+               schema=make_schema(
+                    properties={
+                         "path":{
+                              "type":"string",
+                              "description": "File path relative to workspace. e.g. 'inbox/invoice.txt'"
+                         },
+                         "offset":{
+                              "type": "integer",
+                              "description": "Start reading from this character. Default 0."
+                         },
+                         "max_chars":{
+                              "type": "integer",
+                              "description": "Maximum characters to return. Default 5000."
+                         }
+                    },
+                    required=["path"]  # path is mandatory
+               ),
+               fn=read_file,
+               mutating=False
+          ),
+
+          Tool(
+               name="search_files",
+               description=(
+                    "Search all files for a keyword. "
+                    "Use this to quickly find which files mention a specific vendor "
+                    "or invoice number without reading every file."
+               ),
+               schema=make_schema(
+                    properties={
+                         "query":{
+                              "type":"string",
+                              "description":"Tetx to search for (case insensitive)"
+                         },
+                         "path":{
+                              "type": "string",
+                             "description": "Folder to search in. Default '.' searches everywhere."
+                          }
+                         },
+                         required=["query"]
+               ),
+               fn =search_files,
+               mutating=False
+          ),
+
+          Tool(
+               name="browser_open",
+               description=(
+                "Open a URL in the browser. Returns page text, links and forms. "
+                "Use this to check existing bills before creating, "
+                "or to verify a bill after creating it."
+            ),
+            schema=make_schema(
+                 properties={
+                     "url": {
+                        "type": "string",
+                        "description": "Full URL to open. e.g. 'http://127.0.0.1:5055/payables'" 
+                    }
+                 },
+                 required=["url"]
+            ),
+            fn=browser_open,
+            mutating=False
+          ),
+
+          Tool(
+               name="browser_submit",
+               description=(
+                    "Submit a form on the current page. "
+                    "Provide form_index (0 for first form) and fields to fill. "
+                    "Hidden fields like csrf_token are handled automatically. "
+                    "WARNING: this changes real data and needs human approval."
+               ),
+               schema=make_schema(
+                    properties={
+                         "form_index": {
+                        "type": "integer",
+                        "description": "Which form on the page. 0 = first form."
+                    },
+                    "fields": {
+                        "type": "object",
+                        "description": (
+                            "Fields to fill in. Key = field name, Value = what to type. "
+                            "For dropdowns you can use the label text or the value. "
+                            "Example: {'vendor_id': 'V-100', 'amount': '4820.50'}"
+                        )
+                    }
+                    },
+                    required=["form_index","fields"]
+               ),
+               fn=browser_submit,
+               mutating=True
+          ),
+
+          Tool(
+               name="remeber",
+               description=(
+                    "Save an important fact to working memory. "
+                    "Use this right after extracting key values from an invoice "
+                    "so you never forget them even in long tasks. "
+                    "Example: remember('amount', '4820.50')"
+               ),
+               schema= make_schema(
+                    properties={
+                         "key": {
+                        "type": "string",
+                        "description": "Name for this fact. e.g. 'invoice_number'"
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "Value to remember. e.g. 'INV-2057'"
+                    }
+                    },
+                    required=["key","value"]
+               ),
+               fn = remeber,
+               mutating=False
+          ),
+
+          Tool(
+               name="ask_human",
+               description=(
+                    "Ask the human a question when you need their input. "
+                "Use when: task is ambiguous, policy requires approval "
+                "(bills over 10,000), or you are genuinely stuck. "
+                "Do NOT ask for things you can find yourself in files or the ERP."
+            ),
+            schema=make_schema(
+                 properties={
+                     "question": {
+                        "type": "string",
+                        "description": "Clear, specific question to ask."
+                    }
+                 },
+                 required=["question"]
+            ),
+            fn = ask_human,
+            mutating=False  
+          ),
+
+          Tool(
+               name="finish",
+               description=(
+                    "End the task with a final report. "
+                    "IMPORTANT: Only call this AFTER you have re-opened the bill "
+                    "in the ERP and verified every field matches the invoice. "
+                    "status must be 'success', 'failed' or 'blocked'."
+                ),
+                schema=make_schema(
+                     properties={
+                          "status": {
+                        "type": "string",
+                        "enum": ["success", "failed", "blocked"],
+                        "description": "success = verified done. failed = could not complete. blocked = need help."
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "What happened in 2-3 sentences."
+                    },
+                    "evidence": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "List of concrete proof that the task is done. "
+                            "e.g. ['BILL-0003 created at /payables/BILL-0003', "
+                            "'Amount 4820.50 matches invoice INV-2057']"
+                        )
+                    }
+                     },
+                     required= ["status", "summary", "evidence"]
+                ),
+                fn = None,
+                mutating=False
+            ),
+     ]
+
+     # return as dictionary for  easy lookup by name
+
+     return {tool.name:tool for tool in tools}

@@ -1,0 +1,12 @@
+From: collections@northwind-traders.example
+To: ap@acme.example
+Date: Wed, 30 Sep 2026
+Subject: Payment reminder - INV-2044 overdue
+
+Dear Acme,
+
+This is a reminder that invoice INV-2044 (dated 14 Aug 2026, INR 3,450.75)
+was due on 13 Sep 2026 and is still unpaid.
+Please arrange payment at the earliest.
+
+Northwind Collections

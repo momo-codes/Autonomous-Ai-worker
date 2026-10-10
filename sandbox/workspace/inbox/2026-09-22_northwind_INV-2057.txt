@@ -1,0 +1,17 @@
+From: billing@northwind-traders.example
+To: ap@acme.example
+Date: Tue, 22 Sep 2026
+Subject: Invoice INV-2057 - Northwind Traders Private Limited
+
+Invoice Number : INV-2057
+Invoice Date   : 21 Sep 2026
+Due Date       : 21 Oct 2026
+Currency       : INR
+Bill To        : Acme Corp
+
+Description              Qty   Amount
+Industrial pallets        40   3,100.00
+Stretch wrap rolls       120     985.17
+Subtotal                       4,085.17
+GST 18%                          735.33
+TOTAL DUE                      4,820.50
