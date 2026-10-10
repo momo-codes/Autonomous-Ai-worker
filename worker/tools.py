@@ -291,3 +291,90 @@ def search_files(ctx,query,path="."):
      return {
          "ok": True, "matches": matches
     }      
+
+
+
+
+
+## browser Tools
+
+# tool4 -- Browser_open
+
+def browser_open(ctx,url):
+     """
+     Opens a URL in the browser.
+    
+        Example call from AI:
+        browser_open(ctx, url="http://127.0.0.1:5055/payables")
+        
+        Returns:
+        {
+            "ok": True,
+            "status": 200,
+            "url": "http://127.0.0.1:5055/payables",
+            "title": "Accounts Payable - Acme ERP",
+            "text": "Accounts Payable\n
+                    BILL-0001 | Northwind Traders Pvt Ltd | INV-2031 | 1200.00 INR | Paid\n
+                    BILL-0002 | Northwind Traders Pvt Ltd | INV-2044 | 3450.75 INR | Entered",
+            "links": [
+                {"text": "Home", "href": "http://127.0.0.1:5055/"},
+                {"text": "BILL-0001", "href": "http://127.0.0.1:5055/payables/BILL-0001"},
+                {"text": "Create New Bill", "href": "http://127.0.0.1:5055/payables/new"}
+            ],
+            "forms": []   # no forms on this page
+        }
+        
+        AI reads text to check if INV-2057 already exists.
+        If not found → safe to create new bill.
+     """
+     return ctx.browser.open(url)
+
+
+#3 tool 5 -- browser submit
+
+def browser_submit(ctx,form_index,fields):
+     """
+     Submits a form on the current page.
+    
+    Example call from AI:
+    browser_submit(
+        ctx,
+        form_index=0,
+        fields={
+            "vendor_id": "V-100",
+            "invoice_number": "INV-2057",
+            "invoice_date": "2026-09-21",
+            "due_date": "2026-10-21",
+            "amount": "4820.50",
+            "currency": "INR"
+        }
+    )
+    
+    FIRST ATTEMPT returns (503 error):
+    {
+        "ok": False,
+        "status": 503,
+        "text": "The ledger service is busy. Please retry.",
+        "forms": [...previous form kept so AI can retry...]
+        "note": "Error page had no form. Previous form restored."
+    }
+    
+    AI sees ok=False, reads the message, waits and retries.
+    
+    SECOND ATTEMPT returns (success):
+    {
+        "ok": True,
+        "status": 200,
+        "url": "http://127.0.0.1:5055/payables/BILL-0003?created=1",
+        "text": "Bill BILL-0003\n
+                 Bill created successfully!\n
+                 Vendor | Northwind Traders Pvt Ltd\n
+                 Invoice Number | INV-2057\n
+                 Amount | 4820.50 INR"
+    }
+    
+    AI sees ok=True, reads the bill detail page,
+    confirms all values match the invoice.
+     """
+
+     return ctx.browser.submit(form_index,fields)
