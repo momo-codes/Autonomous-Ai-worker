@@ -78,48 +78,43 @@ class LLMVerifier:
         reason = explanation of the decision
         """
         # Build the messge for the verifier
-        message += f"""
-ORIGINAL GOAL:
-{goal}
+        message = f"""
+            ORIGINAL GOAL:
+            {goal}
 
-COMPANY CONTEXT:
-{company_context}
+            COMPANY CONTEXT:
+            {company_context}
 
-AGENT'S CLAIM:
-{summary}
+            AGENT'S CLAIM:
+            {summary}
 
-EVIDENCE AGENT PROVIDED:
-{json.dumps(evidence, indent=2)}
+            EVIDENCE AGENT PROVIDED:
+            {json.dumps(evidence, indent=2)}
 
-RAW ACTION LOG:
-{digest}
+            RAW ACTION LOG:
+            {digest}
 
-Based on the raw action log, did the agent ACTUALLY complete the goal?
-"""
-        # Call Claude with the skeptical verifier prompt
+            Based on the raw action log, did the agent ACTUALLY complete the goal?
+            """
         response = self.llm.complete(
-            system=VERIFIER_PROMPT,
-            messages=[{"role": "user", "content": message}],
-            tools=None  # verifier cannot use tools - read only
+        system=VERIFIER_PROMPT,
+        messages=[{"role": "user", "content": message}],
+        tools=None
         )
 
-        # Extract the text response
         text = ""
         for block in response.content:
             if block.get("type") == "text":
                 text += block.get("text", "")
 
-        # parse the json verdict
         match = re.search(r"\{.*\}", text, re.DOTALL)
-
         if not match:
-            # could not parse- treat as fail to be safe
             return False, f"Verifier returned unexpected output: {text[:200]}"
 
         try:
-            data=json.loads(match.group(0))
+            data = json.loads(match.group(0))
             passed = data.get("verdict") == "pass"
-            reason = data.get("reason", "no reason given")     
-            return passed,reason
+            reason = data.get("reason", "no reason given")
+            return passed, reason
         except json.JSONDecodeError:
-            return False, f"Verifier JSON parse error: {text[:200]}"
+            return False, f"Verifier parse error: {text[:200]}"

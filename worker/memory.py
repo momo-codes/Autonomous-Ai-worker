@@ -27,6 +27,10 @@ class Memory:
             Path(self.path).parent.mkdir(parents=True,exist_ok=True) 
             Path(self.path).write_text(json.dumps(self.facts, indent=2))   
 
+    # alias for AI typos
+    def remeber(self, key, value):
+        return self.remember(key, value)
+     
     def render(self):
         """
         returns all the facts in memory as a string

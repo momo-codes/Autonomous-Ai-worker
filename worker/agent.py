@@ -150,7 +150,7 @@ class Agent:
         self.verifier_rejections=0
 
         # set when agent calls finish
-        self._finish_result=None
+        self._final_result=None
 
     def run(self,goal):
         """
@@ -294,7 +294,7 @@ class Agent:
         Returns the tool result dict e.g.:
         {"ok": True, "content": "Invoice Number: INV-2057..."}
         """
-        name=name["name"]
+        name=call["name"]
         args = call.get("input") or {}
 
         self.trace.say(
@@ -351,7 +351,7 @@ class Agent:
         run the function → return result
         """
         # special case : finish tool
-        if name == "finish":
+        if name in ("finish", "functions.finish"):
             return self._handle_finish(args)
 
         # unknown tool

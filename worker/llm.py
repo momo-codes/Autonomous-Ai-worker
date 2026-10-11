@@ -2,30 +2,8 @@ import os
 import time
 import json
 
+
 class LLMResponse:
-    """
-    Holds the si's response.
-    
-    content = list of blocks. Each block is either:
-    
-    1. A text block (Ai thinking out loud):
-    {
-        "type": "text",
-        "text": "I should check the inbox files first..."
-    }
-    
-    2. A tool call block (Ai wants to use a tool):
-    {
-        "type": "tool_use",
-        "id": "call_abc123",
-        "name": "read_file",
-        "input": {"path": "inbox/2026-09-22_northwind_INV-2057.txt"}
-    }
-    
-    stop_reason tells us WHY Ai stopped:
-    - "tool_use"   = Ai wants to call a tool
-    - "end_turn"   = Ai is done talking
-    """
     def __init__(self, content, stop_reason):
         self.content = content
         self.stop_reason = stop_reason
@@ -33,338 +11,322 @@ class LLMResponse:
 
 class GeminiLLM:
     """
-    Wrapper around Google Gemini API.
+    Despite the class name we now use Groq.
+    Groq is free, fast and supports tool use
+    without any thought_signature issues.
     
-    Gemini is free and supports tool use (function calling)
-    which is exactly what our agent needs.
-    
-    How tool use works with Gemini:
-    
-    1. We send the task + list of available tools
-    2. Gemini responds with which tool to call and what args
-    3. We run the tool
-    4. We send the result back to Gemini
-    5. Gemini decides next tool or says it's done
-    6. Repeat until task complete
-    
-    Example conversation:
-    
-    US:     "Find latest Northwind invoice"
-            tools available: [list_files, read_file, ...]
-    
-    GEMINI: tool_call: list_files(path="inbox")
-    
-    US:     tool result: ["INV-2031.txt", "INV-2057.txt", ...]
-    
-    GEMINI: tool_call: read_file(path="inbox/INV-2057.txt")
-    
-    US:     tool result: "Invoice Date: 21 Sep 2026, TOTAL: 4820.50"
-    
-    GEMINI: tool_call: remember(key="amount", value="4820.50")
-    
-    ... and so on
+    We keep the class name GeminiLLM so we don't
+    need to change any other file that imports it.
     """
 
-    def __init__(self,model=None,max_tokens=2048):
-        api_key = os.getenv("GEMINI_API_KEY")
+    def __init__(self, model=None, max_tokens=2048):
+        api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise SystemExit(
-                "GEMINI_API_KEY not set!\n"
-                "Get free key at: https://aistudio.google.com\n"
-                "Then run: set GEMINI_API_KEY=your-key-here"
+                "GROQ_API_KEY not set!\n"
+                "Get free key at: https://console.groq.com\n"
+                "Then run: $env:GROQ_API_KEY='your-key-here'"
             )
-
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-
-        self.genai = genai
-        # we will use gemini-1.5-flash as it is free and fast
-        self.model_name = model or os.getenv("WORKER_MODEL", "gemini-1.5-flash")
+        from groq import Groq
+        self.client = Groq(api_key=api_key)
+        # llama-3.3-70b is free, smart and supports tool use
+        self.model_name = model or os.getenv(
+            "WORKER_MODEL", "openai/gpt-oss-20b"
+        )
         self.max_tokens = max_tokens
 
-
-    def complete(self,system,messages,tools=None):
+    def complete(self, system, messages, tools=None):
         """
-        Sends messages to Gemini and returns response.
+        Sends messages to Groq and returns response.
         
-        Converts our internal message format to Gemini format
-        and converts Gemini response back to our format.
+        Groq uses OpenAI-compatible format which is
+        simpler than Gemini - no thought signatures,
+        no content type conversions needed.
         
-        Our format:                    Gemini format:
-        ─────────────────────         ──────────────────────
-        role: "user"          →       role: "user"
-        role: "assistant"     →       role: "model"
-        tool_result block     →       function_response part
-        tool_use block        →       function_call part
-        """ 
+        What we send:
+        messages = [
+            {"role": "system", "content": "You are..."},
+            {"role": "user", "content": "Find invoice"},
+            {"role": "assistant", "content": null,
+             "tool_calls": [{"id": "c1", "function": {"name": "list_files", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "c1", "content": '{"ok": true}'}
+        ]
+        
+        What we get back:
+        choice.message.content = text (if thinking)
+        choice.message.tool_calls = list of tool calls
+        """
+        # Convert our messages to Groq format
+        groq_messages = self._convert_messages(system, messages)
 
-        # converts tools to gemini function declaration
-        gemini_tools = None
-        if tools:
-            gemini_tools = self._build_tools(tools)
+        # Convert our tool specs to Groq format
+        groq_tools = self._convert_tools(tools) if tools else None
 
-        # converts messages to gemini format
-
-        gemini_history, last_message = self._convert_messages(messages)
-
-        #create the model with system instruction
-        model = self.genai.GenerativeModel(
-            model_name=self.model_name,
-            system_instruction=system,
-            tools=gemini_tools
-        )    
-
-        # retry up to 5 times if api is busy
-
+        # Retry up to 5 times
         for attempt in range(5):
             try:
-                # start chat with history
-                chat = model.start_chat(history=gemini_history)
-                # send the last message
-                
-                response = chat.send_message(last_message)
-                break
+                kwargs = {
+                    "model": self.model_name,
+                    "messages": groq_messages,
+                    "max_tokens": self.max_tokens,
+                    "temperature": 0.2
+                }
+                if groq_tools:
+                    kwargs["tools"] = groq_tools
+                    kwargs["tool_choice"] = "auto"
+
+                response = self.client.chat.completions.create(**kwargs)
+                return self._convert_response(response)
+
             except Exception as e:
                 error_str = str(e).lower()
-                # Retry on rate limit or server errors
-                if "429" in error_str or "503" in error_str or "500" in error_str:
-                    if attempt ==4:
+                if any(c in error_str for c in ["429", "503", "500", "rate"]):
+                    if attempt == 4:
                         raise
-                    wait = 2**attempt
+                    wait = 2 ** attempt
                     print(f"API busy, retrying in {wait}s...")
                     time.sleep(wait)
                 else:
                     raise
-        return self._convert_response(response)
 
-    def _build_tools(self,tools):
+    def _convert_messages(self, system, messages):
         """
-        Builds Gemini Tool object from our specs.
+        Converts our messages to Groq/OpenAI format.
         
-        tools = list of dicts already in Gemini format:
-        [
-            {
-                "name": "read_file",
-                "description": "...",
-                "parameters": {"type": "OBJECT", ...}
-            },
-            ...
-        ]
+        Groq format is simpler than Gemini:
         
-        We just wrap them in FunctionDeclaration objects.
-        No type conversion needed - spec() already did that!
+        1. System message goes first as its own message:
+        {"role": "system", "content": "You are an AI worker..."}
+        
+        2. User text:
+        {"role": "user", "content": "Find latest invoice"}
+        
+        3. Assistant with tool calls:
+        {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "list_files",
+                        "arguments": "{}"
+                    }
+                }
+            ]
+        }
+        
+        4. Tool result:
+        {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": '{"ok": true, "entries": [...]}'
+        }
         """
-        from google.generativeai.types import (
-            FunctionDeclaration,
-            Tool
-        )
-
-        declarations=[]
-        for tool_spec in tools:
-            declarations.append(
-                FunctionDeclaration(
-                    name=tool_spec["name"],
-                    description=tool_spec["description"],
-                    parameters = tool_spec["parameters"]
-                )
-            )
-
-        return [Tool(function_declarations=declarations)] 
-
-    
-       
-
-    def _convert_messages(self, messages):
-        """
-        Converts our messages to Gemini format.
-        Returns (history, last_message) separately
-        because Gemini's chat API works that way.
-        
-        history     = all messages except the last one
-        last_message = the most recent message to send now
-        
-        Our message formats and their Gemini equivalents:
-        
-        1. Simple user text:
-           Ours:   {"role": "user", "content": "Find invoice"}
-           Gemini: {"role": "user", "parts": ["Find invoice"]}
-        
-        2. Assistant with text + tool calls:
-           Ours:   {"role": "assistant", "content": [
-                       {"type": "text", "text": "I'll check..."},
-                       {"type": "tool_use", "id": "t1",
-                        "name": "list_files", "input": {}}
-                   ]}
-           Gemini: {"role": "model", "parts": [
-                       "I'll check...",
-                       FunctionCall(name="list_files", args={})
-                   ]}
-        
-        3. Tool results:
-           Ours:   {"role": "user", "content": [
-                       {"type": "tool_result",
-                        "tool_use_id": "t1",
-                        "content": '{"ok": true, "entries": [...]}'}
-                   ]}
-           Gemini: {"role": "user", "parts": [
-                       FunctionResponse(
-                           name="list_files",
-                           response={"result": '{"ok": true, ...}'}
-                       )
-                   ]}
-        """
-        gemini_messages = []
-
-        # We need to track tool call ids to names
-        # so we can match results back to the right function
-        id_to_name = {}
+        groq_messages = [{"role": "system", "content": system}]
 
         for msg in messages:
             role = msg["role"]
             content = msg["content"]
-            gemini_role = "model" if role == "assistant" else "user"
 
             # Simple string message
             if isinstance(content, str):
-                gemini_messages.append({
-                    "role": gemini_role,
-                    "parts": [content]
+                groq_messages.append({
+                    "role": role,
+                    "content": content
                 })
                 continue
 
             # List of blocks
             if isinstance(content, list):
-                parts = []
-                result_parts = []
+                text_parts = []
+                tool_calls = []
+                tool_results = []
 
                 for block in content:
                     btype = block.get("type")
 
-                    # Text block
-                    if btype == "text" and block.get("text"):
-                        parts.append(block["text"])
+                    if btype == "text" and block.get("text", "").strip():
+                        text_parts.append(block["text"])
 
-                    # Tool call block
                     elif btype == "tool_use":
-                        # Remember id → name mapping
-                        id_to_name[block["id"]] = block["name"]
-                        parts.append(
-                            self.genai.protos.Part(
-                                function_call=self.genai.protos.FunctionCall(
-                                    name=block["name"],
-                                    args=block.get("input", {})
+                        tool_calls.append({
+                            "id": block["id"],
+                            "type": "function",
+                            "function": {
+                                "name": block["name"],
+                                "arguments": json.dumps(
+                                    block.get("input", {})
                                 )
-                            )
-                        )
+                            }
+                        })
 
-                    # Tool result block
                     elif btype == "tool_result":
-                        tool_id = block.get("tool_use_id", "")
-                        # Look up which function this result is for
-                        tool_name = id_to_name.get(tool_id, "unknown")
-                        result_content = block.get("content", "{}")
+                        tool_results.append({
+                            "role": "tool",
+                            "tool_call_id": block["tool_use_id"],
+                            "content": block.get("content", "{}")
+                        })
 
-                        try:
-                            result_data = json.loads(result_content)
-                        except Exception:
-                            result_data = {"result": result_content}
+                # Assistant message with tool calls
+                if role == "assistant":
+                    assistant_msg = {
+                        "role": "assistant",
+                        "content": "\n".join(text_parts) or None
+                    }
+                    if tool_calls:
+                        assistant_msg["tool_calls"] = tool_calls
+                    groq_messages.append(assistant_msg)
 
-                        result_parts.append(
-                            self.genai.protos.Part(
-                                function_response=self.genai.protos.FunctionResponse(
-                                    name=tool_name,
-                                    response={"result": json.dumps(result_data)}
-                                )
-                            )
-                        )
+                # Tool results (each gets its own message)
+                for tr in tool_results:
+                    groq_messages.append(tr)
 
-                if parts:
-                    gemini_messages.append({
-                        "role": gemini_role,
-                        "parts": parts
-                    })
-
-                if result_parts:
-                    gemini_messages.append({
+                # User message
+                if role == "user" and text_parts and not tool_results:
+                    groq_messages.append({
                         "role": "user",
-                        "parts": result_parts
+                        "content": "\n".join(text_parts)
                     })
 
-        # Split into history and last message
-        # Gemini needs them separate
-        if not gemini_messages:
-            return [], "Start the task."
+        return groq_messages
 
-        last = gemini_messages[-1]
-        history = gemini_messages[:-1]
+    def _convert_tools(self, tools):
+        """
+        Converts our tool specs to Groq/OpenAI format.
+        
+        Our format (from Tool.spec()):
+        {
+            "name": "read_file",
+            "description": "Read a file...",
+            "parameters": {
+                "type": "OBJECT",          ← uppercase from our spec
+                "properties": {
+                    "path": {"type": "STRING"}
+                },
+                "required": ["path"]
+            }
+        }
+        
+        Groq needs lowercase types:
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read a file...",
+                "parameters": {
+                    "type": "object",       ← lowercase
+                    "properties": {
+                        "path": {"type": "string"}  ← lowercase
+                    },
+                    "required": ["path"]
+                }
+            }
+        }
+        """
+        groq_tools = []
+        for tool_spec in tools:
+            # Convert uppercase types back to lowercase
+            params = self._lowercase_types(
+                tool_spec.get("parameters", {})
+            )
+            groq_tools.append({
+                "type": "function",
+                "function": {
+                    "name": tool_spec["name"],
+                    "description": tool_spec["description"],
+                    "parameters": params
+                }
+            })
+        return groq_tools
 
-        # Last message parts
-        last_parts = last["parts"]
-
-        return history, last_parts
+    def _lowercase_types(self, schema):
+        """
+        Recursively converts uppercase types to lowercase.
+        Our Tool.spec() outputs uppercase for Gemini.
+        Groq needs lowercase.
+        
+        "OBJECT" → "object"
+        "STRING" → "string"
+        "INTEGER" → "integer"
+        "ARRAY" → "array"
+        """
+        if not isinstance(schema, dict):
+            return schema
+        result = {}
+        for key, value in schema.items():
+            if key == "type" and isinstance(value, str):
+                result[key] = value.lower()
+            elif isinstance(value, dict):
+                result[key] = self._lowercase_types(value)
+            elif isinstance(value, list):
+                result[key] = [
+                    self._lowercase_types(i) if isinstance(i, dict) else i
+                    for i in value
+                ]
+            else:
+                result[key] = value
+        return result
 
     def _convert_response(self, response):
         """
-        Converts Gemini response to our format.
+        Converts Groq response to our format.
         
-        Gemini gives us:
-        response.candidates[0].content.parts = [
-            Part(text="I'll check the inbox first"),
-            Part(function_call=FunctionCall(
-                name="list_files",
-                args={"path": "inbox"}
-            ))
+        Groq response:
+        response.choices[0].message.content = "I'll check inbox..."
+        response.choices[0].message.tool_calls = [
+            ToolCall(
+                id="call_1",
+                type="function",
+                function=Function(
+                    name="list_files",
+                    arguments="{}"
+                )
+            )
         ]
         
-        We convert to:
+        Our format:
         [
-            {"type": "text", "text": "I'll check the inbox first"},
-            {
-                "type": "tool_use",
-                "id": "call_1",
-                "name": "list_files",
-                "input": {"path": "inbox"}
-            }
+            {"type": "text", "text": "I'll check inbox..."},
+            {"type": "tool_use", "id": "call_1",
+             "name": "list_files", "input": {}}
         ]
         """
         blocks = []
         stop_reason = "end_turn"
-        call_counter = 0
 
         try:
-            parts = response.candidates[0].content.parts
+            message = response.choices[0].message
         except (IndexError, AttributeError):
             return LLMResponse(
                 [{"type": "text", "text": "No response generated."}],
                 "end_turn"
             )
 
-        for part in parts:
-            # Text part
-            if hasattr(part, "text") and part.text:
-                blocks.append({
-                    "type": "text",
-                    "text": part.text
-                })
+        # Text content
+        if message.content and message.content.strip():
+            blocks.append({
+                "type": "text",
+                "text": message.content
+            })
 
-            # Function call part
-            elif hasattr(part, "function_call") and part.function_call.name:
-                call_counter += 1
-                stop_reason = "tool_use"
-
-                # Convert Gemini MapComposite args to regular dict
-                args = {}
-                for key, value in part.function_call.args.items():
-                    args[key] = value
-
+        # Tool calls
+        if message.tool_calls:
+            stop_reason = "tool_use"
+            for tc in message.tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments)
+                except Exception:
+                    args = {}
                 blocks.append({
                     "type": "tool_use",
-                    "id": f"call_{call_counter}",
-                    "name": part.function_call.name,
+                    "id": tc.id,
+                    "name": tc.function.name,
                     "input": args
                 })
 
         if not blocks:
-            blocks = [{"type": "text", "text": "No content in response."}]
+            blocks = [{"type": "text", "text": "Empty response."}]
 
         return LLMResponse(blocks, stop_reason)

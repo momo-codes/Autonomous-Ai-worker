@@ -127,7 +127,7 @@ class Trace:
         for h in history:
             # shorten result for table
             detail=json.dumps(h["result"],default=str)[:80]
-            ok_text = "✓ ok" if h["result"].get("ok") else "✗ failed"
+            ok_text = "ok" if h["result"].get("ok") else "failed"
             table_rows += (
                 f"| {h['step']} "
                 f"| `{h['tool']}` "
@@ -148,4 +148,4 @@ class Trace:
 |------|------|--------|--------|
 {table_rows}
 """
-        (self.dir/"report.md").write_text(report)
+        (self.dir/"report.md").write_text(report,encoding="utf-8")
