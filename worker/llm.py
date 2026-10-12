@@ -19,7 +19,7 @@ class GeminiLLM:
     need to change any other file that imports it.
     """
 
-    def __init__(self, model=None, max_tokens=2048):
+    def __init__(self, model=None, max_tokens=512):
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise SystemExit(
@@ -69,7 +69,8 @@ class GeminiLLM:
                     "model": self.model_name,
                     "messages": groq_messages,
                     "max_tokens": self.max_tokens,
-                    "temperature": 0.2
+                    "temperature": 0.2,
+                    "parallel_tool_calls":False
                 }
                 if groq_tools:
                     kwargs["tools"] = groq_tools
@@ -227,19 +228,44 @@ class GeminiLLM:
         """
         groq_tools = []
         for tool_spec in tools:
-            # Convert uppercase types back to lowercase
-            params = self._lowercase_types(
-                tool_spec.get("parameters", {})
-            )
-            groq_tools.append({
-                "type": "function",
-                "function": {
-                    "name": tool_spec["name"],
-                    "description": tool_spec["description"],
-                    "parameters": params
-                }
-            })
+                params = self._lowercase_types(
+                    tool_spec.get("parameters", {})
+                )
+                # Remove 'enum' from type fields - Groq doesn't like it
+                params = self._clean_schema(params)
+                groq_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": tool_spec["name"],
+                        "description": tool_spec["description"],
+                        "parameters": params
+                    }
+                })
         return groq_tools
+
+    def _clean_schema(self, schema):
+        """
+        Cleans schema for Groq compatibility.
+        Groq sometimes fails on complex nested schemas.
+        We simplify by removing problematic fields.
+        """
+        if not isinstance(schema, dict):
+            return schema
+        result = {}
+        for key, value in schema.items():
+            # Skip 'enum' inside type definitions at top level
+            if key == "enum" and isinstance(value, list):
+                continue
+            elif isinstance(value, dict):
+                result[key] = self._clean_schema(value)
+            elif isinstance(value, list):
+                result[key] = [
+                    self._clean_schema(i) if isinstance(i, dict) else i
+                    for i in value
+                ]
+            else:
+                result[key] = value
+        return result
 
     def _lowercase_types(self, schema):
         """

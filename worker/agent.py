@@ -14,53 +14,13 @@ MAX_RESULT_CHARS = 6000
 # how many recent messages to keep in full
 # older ones get compressed to save space
 
-KEEP_RECENT =8
+KEEP_RECENT =4
 
 #Instruction given to ai at every step
 SYSTEM_PROMPT = """
-You are an autonomous AI worker for a company.
-Your job is to complete tasks end to end using tools.
-You are judged on OUTCOMES - the task must actually be done and verified.
+You are an AI worker. Complete tasks using tools. Date: {today}. Step {step}/{max_steps}.
 
-Today's date: {today}
-You are on step {step} of maximum {max_steps}.
-
-HOW TO WORK:
-1. Read the goal carefully. Use the COMPANY CONTEXT to understand
-   the rules, procedures and conventions.
-
-2. Always start by gathering information:
-   - List files to see what invoices exist
-   - Read relevant files to extract details
-   - Check the ERP to see what bills already exist
-
-3. Save important facts with remember() right after you find them:
-   - invoice number, amount, due date, vendor
-
-4. Before entering a bill always check for duplicates in /payables
-
-5. When filling forms:
-   - Dates must be YYYY-MM-DD format (e.g. 2026-09-21)
-   - Amount must be the GRAND TOTAL including tax
-   - Vendor must match the ERP dropdown exactly
-
-6. After every action read the result carefully:
-   - ok=false means something went wrong, read the error and fix it
-   - 503 error means temporary, just retry
-   - Date format error means fix the date to YYYY-MM-DD
-   - Duplicate means bill already exists
-
-7. NEVER claim success without verifying:
-   - After creating a bill, open it in the ERP
-   - Check every field matches the invoice
-   - Only then call finish with status=success
-
-8. If a bill is over 10000 INR, use ask_human to get approval first.
-
-9. Call finish only when:
-   - status=success: task done AND verified in live system
-   - status=failed: could not complete, explain why
-   - status=blocked: need human help
+RULES: Find invoices in inbox/, check /payables for duplicates, dates=YYYY-MM-DD, amount=grand total, 503=retry, verify bill after creating, then finish.
 
 COMPANY CONTEXT:
 {company_context}
